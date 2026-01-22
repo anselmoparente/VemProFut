@@ -7,7 +7,6 @@ const http: AxiosInstance = axios.create({
     },
 });
 
-// Interceptor para adicionar Bearer Token
 http.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
         const token = localStorage.getItem("token");

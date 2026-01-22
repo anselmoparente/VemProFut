@@ -11,7 +11,14 @@ class SportsCenter extends Model
 
     protected $fillable = [
         'name',
-        'address',
+        'phone',
+        'street',
+        'number',
+        'complement',
+        'neighborhood',
+        'city',
+        'state',
+        'zip_code',
         'latitude',
         'longitude',
         'owner_id',
