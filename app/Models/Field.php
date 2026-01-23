@@ -11,7 +11,12 @@ class Field extends Model
 
     protected $fillable = [
         'name',
+        'price_per_hour',
         'sports_center_id',
+    ];
+
+    protected $casts = [
+        'price_per_hour' => 'decimal:2',
     ];
 
     public function sportsCenter()

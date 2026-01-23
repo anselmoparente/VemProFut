@@ -1,8 +1,9 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
 
-import Home from "../pages/Home/Home.vue";
 import Login from "../pages/Login/Login.vue";
 import Register from "../pages/Register/Register.vue";
+import Home from "../pages/Home/Home.vue";
+import SportsCenterDetails from "../pages/SportsCenters/SportsCenterDetails.vue";
 
 function isAuthenticated(): boolean {
     return !!localStorage.getItem("token");
@@ -24,6 +25,11 @@ const routes: RouteRecordRaw[] = [
         name: "home",
         component: Home, meta: { requiresAuth: true }
     },
+    {
+        path: "/sports-centers/:id",
+        name: "sports-centers.details",
+        component: SportsCenterDetails, meta: { requiresAuth: true },
+    }
 ];
 
 const router = createRouter({

@@ -157,7 +157,11 @@ onMounted(loadSportsCenters);
                 </div>
 
                 <div class="card-actions">
-                    <button class="btn secondary" @click="openEditDialog(sc)" :disabled="loading">Editar</button>
+                    <button class="btn secondary"
+                        @click="router.push({ name: 'sports-centers.details', params: { id: sc.id } })"
+                        :disabled="loading">
+                        Detalhes
+                    </button>
                     <button class="btn danger" @click="onDelete(sc)" :disabled="loading">Remover</button>
                 </div>
             </div>

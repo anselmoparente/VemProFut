@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('fields', function (Blueprint $table) {
             $table->id();
             $table->string('name');
+            $table->decimal('price_per_hour', 10, 2);
             $table->foreignId('sports_center_id')->constrained();
             $table->timestamps();
             $table->softDeletes();
