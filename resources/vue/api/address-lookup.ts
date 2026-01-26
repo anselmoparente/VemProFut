@@ -79,12 +79,10 @@ export async function geocodeWithFallback(queries: string[]) {
             return await geocodeNominatim(q);
         } catch (e: any) {
             lastErr = e;
-            // se for rate limit, não adianta continuar
             if (e?.message?.includes("Muitas buscas")) throw e;
         }
     }
 
-    // Se todas deram vazio, mensagem “produto”
     throw new Error(
         "Não foi possível obter coordenadas para este endereço. Tente ajustar o número ou digite a latitude/longitude manualmente."
     );

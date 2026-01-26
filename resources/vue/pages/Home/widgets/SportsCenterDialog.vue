@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import type { SportsCenter, SportsCenterCreatePayload } from "../../../api/sports-centers";
-import { fetchViaCep, geocodeWithFallback } from "../../../api/addressLookup";
+import { fetchViaCep, geocodeWithFallback } from "../../../api/address-lookup";
 
 type Mode = "create" | "edit";
 

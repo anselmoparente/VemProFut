@@ -1,19 +1,18 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import {
-    createSportsCenter,
-    deleteSportsCenter,
-    listSportsCenters,
-    updateSportsCenter,
-    type SportsCenter,
-    type SportsCenterCreatePayload,
-} from "../../api/sports-centers";
-import { logout } from "../../api/auth";
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 
+import { logout } from "../../api/auth";
+import { listSportsCenters, type SportsCenter } from "../../api/sports-centers";
+import { getDashboard, type DashboardResponse } from "../../api/dashboard";
+import { useToast } from "../../utils/toast.ts";
+
+import DashboardCards from "./widgets/DashboardCards.vue";
+import UpcomingGamesPreview from "./widgets/UpcomingGamesPreview.vue";
 import SportsCenterDialog from "./widgets/SportsCenterDialog.vue";
 
 const router = useRouter();
+const toast = useToast();
 
 const loading = ref(false);
 const error = ref<string>("");
@@ -22,48 +21,45 @@ const items = ref<SportsCenter[]>([]);
 const page = ref(1);
 const total = ref(0);
 
+const dashboard = ref<DashboardResponse | null>(null);
+
+const query = ref("");
+
 const dialogOpen = ref(false);
 const dialogMode = ref<"create" | "edit">("create");
 const editingItem = ref<SportsCenter | null>(null);
 
-function openCreateDialog() {
-    dialogMode.value = "create";
-    editingItem.value = null;
-    dialogOpen.value = true;
-}
+const filteredItems = computed(() => {
+    const q = query.value.trim().toLowerCase();
+    if (!q) return items.value;
 
-function openEditDialog(sc: SportsCenter) {
-    dialogMode.value = "edit";
-    editingItem.value = sc;
-    dialogOpen.value = true;
-}
+    return items.value.filter((sc) => {
+        const hay = [
+            sc.name,
+            sc.city,
+            sc.state,
+            sc.zip_code,
+            sc.street,
+            sc.number,
+            sc.neighborhood,
+            sc.phone ?? "",
+        ]
+            .join(" ")
+            .toLowerCase();
 
-async function handleDialogSubmit(payload: SportsCenterCreatePayload) {
-    loading.value = true;
+        return hay.includes(q);
+    });
+});
 
-    try {
-        if (dialogMode.value === "create") {
-            const created = await createSportsCenter(payload);
-            items.value = [created, ...items.value];
-        } else if (editingItem.value) {
-            const updated = await updateSportsCenter(editingItem.value.id, payload);
-            const idx = items.value.findIndex(i => i.id === updated.id);
-            if (idx >= 0) items.value[idx] = updated;
-        }
-
-        dialogOpen.value = false;
-    } finally {
-        loading.value = false;
-    }
-}
-
-async function loadSportsCenters() {
+async function loadAll() {
     loading.value = true;
     error.value = "";
+
     try {
-        const res = await listSportsCenters(page.value);
-        items.value = res.data;
-        total.value = res.total;
+        const [dash, sc] = await Promise.all([getDashboard(), listSportsCenters(page.value)]);
+        dashboard.value = dash;
+        items.value = sc.data;
+        total.value = sc.total;
     } catch (e: any) {
         if (e?.response?.status === 401) {
             await router.push({ name: "login" });
@@ -73,23 +69,7 @@ async function loadSportsCenters() {
             error.value = "Acesso negado. Sua conta não tem permissão para acessar esta área.";
             return;
         }
-        error.value = e?.response?.data?.message ?? "Falha ao carregar as Arenas Esportivas.";
-    } finally {
-        loading.value = false;
-    }
-}
-
-async function onDelete(sc: SportsCenter) {
-    const ok = confirm(`Remover "${sc.name}"?`);
-    if (!ok) return;
-
-    loading.value = true;
-    error.value = "";
-    try {
-        await deleteSportsCenter(sc.id);
-        items.value = items.value.filter((x) => x.id !== sc.id);
-    } catch (e: any) {
-        error.value = e?.response?.data?.message ?? "Falha ao remover a Arena Esportiva.";
+        error.value = e?.response?.data?.message ?? "Falha ao carregar Home.";
     } finally {
         loading.value = false;
     }
@@ -104,68 +84,193 @@ async function onLogout() {
     }
 }
 
-onMounted(loadSportsCenters);
+function openCreateDialog() {
+    dialogMode.value = "create";
+    editingItem.value = null;
+    dialogOpen.value = true;
+}
+function openEditDialog(sc: SportsCenter) {
+    dialogMode.value = "edit";
+    editingItem.value = sc;
+    dialogOpen.value = true;
+}
+
+async function handleDialogSubmit(_payload: any) {
+    toast.show("success", "Arena salva", "As informações foram atualizadas com sucesso.");
+    dialogOpen.value = false;
+    await loadAll();
+}
+
+onMounted(loadAll);
 </script>
 
 <template>
     <div class="page">
         <header class="topbar">
-            <div>
-                <h1 class="title">VemProFut</h1>
-                <p class="subtitle">Gerencie suas Arenas Esportivas</p>
+            <div class="brand">
+                <div class="brand-mark">
+                    <span class="material-icons">sports_soccer</span>
+                </div>
+
+                <div class="brand-text">
+                    <h1 class="title">VemProFut</h1>
+                    <p class="subtitle">Dashboard da sua operação</p>
+                </div>
             </div>
 
             <div class="actions">
-                <button class="icon-btn" :class="{ spinning: loading }" @click="loadSportsCenters" :disabled="loading"
-                    aria-label="Atualizar lista">
+                <button class="icon-btn" :class="{ spinning: loading }" @click="loadAll" :disabled="loading"
+                    aria-label="Atualizar">
                     <span class="material-icons">refresh</span>
                 </button>
-                <button class="btn" @click="openCreateDialog" :disabled="loading">Nova Arena Esportiva</button>
-                <button class="btn danger" @click="onLogout" :disabled="loading">Sair</button>
+
+                <button class="btn primary" @click="openCreateDialog" :disabled="loading">
+                    <span class="material-icons">add</span>
+                    Nova Arena
+                </button>
+
+                <button class="btn danger" @click="onLogout" :disabled="loading">
+                    <span class="material-icons">logout</span>
+                    Sair
+                </button>
             </div>
         </header>
 
         <div v-if="error" class="alert" role="alert">
-            <strong>Ops.</strong>
-            <p class="alert-text">{{ error }}</p>
+            <span class="material-icons">error</span>
+            <div>
+                <strong>Ops.</strong>
+                <p class="alert-text">{{ error }}</p>
+            </div>
         </div>
 
-        <section class="list">
-            <div v-if="loading && items.length === 0" class="muted">Carregando...</div>
-
-            <div v-if="!loading && items.length === 0" class="empty">
-                <strong>Nenhuma Arena Esportiva cadastrado.</strong>
-                <p class="muted">Clique em “Nova Arena Esportiva" para criar a primeira.</p>
-            </div>
-
-            <div v-for="sc in items" :key="sc.id" class="card">
-                <div class="card-main">
-                    <div class="card-title">{{ sc.name }}</div>
-
-                    <div class="card-sub">
-                        {{ sc.street }}, {{ sc.number }}
-                        <span v-if="sc.complement"> - {{ sc.complement }}</span>
-                    </div>
-
-                    <div class="card-sub">
-                        {{ sc.neighborhood }} · {{ sc.city }}/{{ sc.state }} · {{ sc.zip_code }}
-                    </div>
-
-                    <div class="card-sub small">
-                        Lat/Lng: {{ sc.latitude }}, {{ sc.longitude }}
-                    </div>
-                </div>
-
-                <div class="card-actions">
-                    <button class="btn secondary"
-                        @click="router.push({ name: 'sports-centers.details', params: { id: sc.id } })"
-                        :disabled="loading">
-                        Detalhes
-                    </button>
-                    <button class="btn danger" @click="onDelete(sc)" :disabled="loading">Remover</button>
+        <section class="section">
+            <div class="section-head">
+                <div>
+                    <div class="section-title">Visão geral</div>
+                    <div class="section-sub">Resumo rápido da operação</div>
                 </div>
             </div>
+
+            <DashboardCards :sportsCentersCount="Number(dashboard?.sports_centers_count ?? 0)"
+                :fieldsCount="Number(dashboard?.fields_count ?? 0)"
+                :upcomingGamesCount="Number(dashboard?.upcoming_games_count ?? 0)" />
         </section>
+
+        <div class="grid-2">
+            <section class="section">
+                <div class="section-head">
+                    <div>
+                        <div class="section-title">Arenas</div>
+                        <div class="section-sub">
+                            {{ total || items.length }} cadastrada(s)
+                            <span v-if="query.trim()"> · filtrando por “{{ query.trim() }}”</span>
+                        </div>
+                    </div>
+
+                    <div class="section-tools">
+                        <div class="search">
+                            <span class="material-icons">search</span>
+                            <input v-model.trim="query" :disabled="loading"
+                                placeholder="Buscar arena por nome, cidade, CEP..." aria-label="Buscar arenas" />
+                            <button v-if="query" class="clear" type="button" @click="query = ''"
+                                aria-label="Limpar busca">
+                                <span class="material-icons">close</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div v-if="loading && items.length === 0" class="state">
+                        <span class="material-icons">hourglass_top</span>
+                        <div>
+                            <strong>Carregando arenas...</strong>
+                            <p>Buscando suas arenas cadastradas.</p>
+                        </div>
+                    </div>
+
+                    <div v-else-if="!loading && filteredItems.length === 0" class="state">
+                        <span class="material-icons">inventory_2</span>
+                        <div>
+                            <strong>Nenhuma arena encontrada.</strong>
+                            <p v-if="query.trim()">Tente ajustar sua busca ou limpe o filtro.</p>
+                            <p v-else>Clique em “Nova Arena” para criar a primeira.</p>
+                        </div>
+                        <button v-if="!query.trim()" class="btn primary" @click="openCreateDialog">
+                            <span class="material-icons">add</span>
+                            Criar Arena
+                        </button>
+                    </div>
+
+                    <div v-else class="cards">
+                        <article v-for="sc in filteredItems" :key="sc.id" class="arena-card">
+                            <div class="arena-head">
+                                <div class="arena-title">
+                                    <div class="arena-name">{{ sc.name }}</div>
+                                    <div class="chips">
+                                        <span class="chip">
+                                            <span class="material-icons">location_on</span>
+                                            {{ sc.city }}/{{ sc.state }}
+                                        </span>
+                                        <span class="chip subtle">
+                                            <span class="material-icons">local_post_office</span>
+                                            {{ sc.zip_code }}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="arena-actions">
+                                    <RouterLink class="btn secondary" :to="`/sports-centers/${sc.id}`">
+                                        <span class="material-icons">open_in_new</span>
+                                        Detalhes
+                                    </RouterLink>
+                                    <button class="btn secondary" @click="openEditDialog(sc)" :disabled="loading">
+                                        <span class="material-icons">edit</span>
+                                        Editar
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="arena-body">
+                                <div class="row">
+                                    <span class="material-icons">place</span>
+                                    <div class="row-text">
+                                        <div class="row-main">
+                                            {{ sc.street }}, {{ sc.number }}
+                                            <span v-if="sc.complement"> · {{ sc.complement }}</span>
+                                        </div>
+                                        <div class="row-sub">
+                                            {{ sc.neighborhood }}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row" v-if="sc.phone">
+                                    <span class="material-icons">call</span>
+                                    <div class="row-text">
+                                        <div class="row-main">{{ sc.phone }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </article>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section">
+                <div class="section-head">
+                    <div>
+                        <div class="section-title">Próximas partidas</div>
+                        <div class="section-sub">Visão rápida dos agendamentos</div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <UpcomingGamesPreview :games="dashboard?.upcoming_games ?? []" :loading="loading && !dashboard" />
+                </div>
+            </section>
+        </div>
 
         <SportsCenterDialog :open="dialogOpen" :mode="dialogMode" :loading="loading" :modelValue="editingItem"
             @close="dialogOpen = false" @submit="handleDialogSubmit" />
@@ -174,10 +279,10 @@ onMounted(loadSportsCenters);
 
 <style scoped>
 .page {
-    max-width: 980px;
+    max-width: 1080px;
     margin: 40px auto;
-    padding: 0 16px;
-    color: #eaf0ff;
+    padding: 0 16px 60px 16px;
+    color: #EAF0FF;
 }
 
 .topbar {
@@ -185,35 +290,71 @@ onMounted(loadSportsCenters);
     justify-content: space-between;
     align-items: flex-start;
     gap: 16px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
+}
+
+.brand {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.brand-mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: #FFFFFF12;
+    border: 1px solid #FFFFFF1F;
+    display: grid;
+    place-items: center;
+    box-shadow: 0 12px 28px #00000040;
+}
+
+.brand-mark .material-icons {
+    font-size: 22px;
+}
+
+.brand-text {
+    display: grid;
+    gap: 6px;
 }
 
 .title {
     margin: 0;
     font-size: 18px;
-    font-weight: 800;
+    font-weight: 900;
 }
 
 .subtitle {
-    margin: 6px 0 0 0;
+    margin: 0;
     font-size: 12px;
-    opacity: 0.8;
+    color: #EAF0FFB3;
 }
 
 .actions {
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 .btn {
-    background: #2e7dff;
     border: 0;
     border-radius: 12px;
     padding: 10px 12px;
-    color: #eaf0ff;
-    font-weight: 700;
+    color: #EAF0FF;
+    font-weight: 900;
     cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: transform 150ms ease, filter 150ms ease, opacity 150ms ease;
+}
+
+.btn:active {
+    transform: translateY(1px);
 }
 
 .btn:disabled {
@@ -221,203 +362,48 @@ onMounted(loadSportsCenters);
     cursor: not-allowed;
 }
 
+.btn.primary {
+    background: #2E7DFF;
+    box-shadow: 0 14px 26px #2E7DFF26;
+}
+
 .btn.secondary {
-    background: rgba(255, 255, 255, 0.12);
+    background: #FFFFFF12;
+    border: 1px solid #FFFFFF1F;
 }
 
 .btn.danger {
-    background: rgba(255, 90, 123, 0.85);
+    background: #FF5A7BD9;
 }
 
 .icon-btn {
-    background: rgba(255, 255, 255, 0.12);
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: #FFFFFF12;
+    border: 1px solid #FFFFFF1F;
     border-radius: 50%;
     width: 42px;
     height: 42px;
     display: grid;
     place-items: center;
-    color: #eaf0ff;
+    color: #EAF0FF;
     cursor: pointer;
-    transition: background 150ms ease, transform 150ms ease, opacity 150ms ease;
+    transition: transform 150ms ease, opacity 150ms ease, background 150ms ease;
 }
 
 .icon-btn:hover {
-    background: rgba(255, 255, 255, 0.20);
+    background: #FFFFFF1F;
+}
+
+.icon-btn:active {
+    transform: translateY(1px);
 }
 
 .icon-btn:disabled {
-    opacity: 0.5;
+    opacity: 0.55;
     cursor: not-allowed;
 }
 
-.icon-btn .material-icons {
-    font-size: 22px;
-}
-
 .icon-btn.spinning .material-icons {
-    animation: spin 0.9s linear infinite;
-}
-
-.alert {
-    background: rgba(255, 90, 123, 0.10);
-    border: 1px solid rgba(255, 90, 123, 0.35);
-    border-radius: 12px;
-    padding: 12px;
-    margin: 16px 0;
-}
-
-.alert-text {
-    margin: 6px 0 0 0;
-    opacity: 0.9;
-}
-
-.list {
-    display: grid;
-    gap: 12px;
-    margin-top: 10px;
-}
-
-.card {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 16px;
-    padding: 14px;
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    backdrop-filter: blur(8px);
-}
-
-.card-title {
-    font-weight: 800;
-    margin-bottom: 4px;
-}
-
-.card-sub {
-    font-size: 13px;
-    opacity: 0.85;
-}
-
-.card-sub.small {
-    font-size: 12px;
-    opacity: 0.75;
-    margin-top: 6px;
-}
-
-.card-actions {
-    display: flex;
-    gap: 10px;
-    align-items: flex-start;
-}
-
-.empty {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px dashed rgba(255, 255, 255, 0.20);
-    border-radius: 16px;
-    padding: 18px;
-}
-
-.muted {
-    opacity: 0.8;
-    font-size: 12px;
-}
-
-/* Dialog */
-.overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.55);
-    display: grid;
-    place-items: center;
-    padding: 16px;
-    z-index: 50;
-}
-
-.dialog {
-    width: 100%;
-    max-width: 820px;
-    background: rgba(15, 23, 42, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 16px;
-    padding: 16px;
-    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
-}
-
-.dialog-header {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    align-items: flex-start;
-}
-
-.dialog-title {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 900;
-}
-
-.dialog-subtitle {
-    margin: 6px 0 0 0;
-    font-size: 12px;
-    opacity: 0.8;
-}
-
-.icon {
-    background: transparent;
-    border: 0;
-    color: #eaf0ff;
-    font-size: 18px;
-    cursor: pointer;
-    opacity: 0.85;
-}
-
-.icon:hover {
-    opacity: 1;
-}
-
-.dialog-form {
-    margin-top: 14px;
-}
-
-.grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-}
-
-.field {
-    display: grid;
-    gap: 6px;
-}
-
-.label {
-    font-size: 13px;
-    font-weight: 700;
-    opacity: 0.95;
-}
-
-input {
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(15, 23, 42, 0.55);
-    color: #eaf0ff;
-    width: 100%;
-    outline: none;
-    padding: 11px 12px;
-    transition: border-color 160ms ease, box-shadow 160ms ease;
-}
-
-input:focus {
-    border-color: rgba(46, 125, 255, 0.7);
-    box-shadow: 0 0 0 2px rgba(46, 125, 255, 0.18);
-}
-
-.dialog-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    margin-top: 14px;
+    animation: spin 900ms linear infinite;
 }
 
 @keyframes spin {
@@ -426,21 +412,237 @@ input:focus {
     }
 }
 
-@media (max-width: 720px) {
-    .topbar {
-        flex-direction: column;
-    }
+.alert {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    background: #FF5A7B1F;
+    border: 1px solid #FF5A7B59;
+    border-radius: 14px;
+    padding: 12px;
+    margin: 12px 0 16px 0;
+}
 
-    .grid {
+.alert-text {
+    margin: 6px 0 0 0;
+    color: #EAF0FFDD;
+    font-size: 13px;
+}
+
+.section {
+    margin-top: 14px;
+}
+
+.section-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.section-title {
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #EAF0FFCC;
+}
+
+.section-sub {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #EAF0FFB3;
+}
+
+.section-tools {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.panel {
+    background: #FFFFFF0F;
+    border: 1px solid #FFFFFF1F;
+    border-radius: 16px;
+    padding: 14px;
+    backdrop-filter: blur(8px);
+}
+
+.grid-2 {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 14px;
+    margin-top: 12px;
+}
+
+.search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #0F172A8C;
+    border: 1px solid #FFFFFF1F;
+    border-radius: 12px;
+    padding: 10px 10px;
+    min-width: 320px;
+}
+
+.search .material-icons {
+    font-size: 18px;
+    color: #EAF0FFB3;
+}
+
+.search input {
+    width: 100%;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: #EAF0FF;
+    font-size: 13px;
+}
+
+.clear {
+    background: transparent;
+    border: 0;
+    color: #EAF0FFB3;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+}
+
+.clear .material-icons {
+    font-size: 18px;
+}
+
+.state {
+    display: grid;
+    grid-template-columns: 24px 1fr;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 14px;
+    border-radius: 14px;
+    background: #0F172A5C;
+    border: 1px dashed #FFFFFF2E;
+}
+
+.state .material-icons {
+    color: #EAF0FFB3;
+}
+
+.state strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.state p {
+    margin: 6px 0 0 0;
+    font-size: 12px;
+    color: #EAF0FFB3;
+}
+
+.cards {
+    display: grid;
+    gap: 12px;
+}
+
+.arena-card {
+    background: #0F172A5C;
+    border: 1px solid #FFFFFF1F;
+    border-radius: 16px;
+    padding: 14px;
+}
+
+.arena-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.arena-name {
+    font-size: 14px;
+    font-weight: 900;
+    margin-bottom: 8px;
+}
+
+.chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 999px;
+    background: #FFFFFF12;
+    border: 1px solid #FFFFFF1F;
+    font-size: 12px;
+    color: #EAF0FF;
+}
+
+.chip.subtle {
+    color: #EAF0FFCC;
+}
+
+.chip .material-icons {
+    font-size: 16px;
+    color: #EAF0FFB3;
+}
+
+.arena-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.arena-body {
+    margin-top: 12px;
+    display: grid;
+    gap: 10px;
+}
+
+.row {
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.row .material-icons {
+    font-size: 18px;
+    color: #EAF0FFB3;
+    margin-top: 2px;
+}
+
+.row-main {
+    font-size: 13px;
+    color: #EAF0FF;
+}
+
+.row-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #EAF0FFB3;
+}
+
+@media (max-width: 980px) {
+    .grid-2 {
         grid-template-columns: 1fr;
     }
 
-    .card {
-        flex-direction: column;
+    .search {
+        min-width: 0;
+        width: 100%;
     }
 
-    .card-actions {
-        justify-content: flex-end;
+    .section-head {
+        flex-direction: column;
+        align-items: stretch;
     }
 }
 </style>

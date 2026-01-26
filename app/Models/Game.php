@@ -19,6 +19,16 @@ class Game extends Model
         'organizer_id',
     ];
 
+    protected $casts = [
+        'game_date' => 'date:Y-m-d',
+        'start_time' => 'string',
+        'end_time' => 'string',
+        'max_players' => 'integer',
+        'status_id' => 'integer',
+        'field_id' => 'integer',
+        'organizer_id' => 'integer',
+    ];
+
     public function status()
     {
         return $this->belongsTo(GameStatus::class, 'status_id');
@@ -36,11 +46,7 @@ class Game extends Model
 
     public function players()
     {
-        return $this->belongsToMany(
-            User::class,
-            'game_players',
-            'game_id',
-            'player_id'
-        )->withPivot('joined_at');
+        return $this->belongsToMany(User::class, 'game_players', 'game_id', 'player_id')
+            ->withPivot('joined_at');
     }
 }

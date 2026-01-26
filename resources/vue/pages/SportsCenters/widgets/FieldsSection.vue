@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { createField, deleteField, listFields, updateField, type Field, type FieldCreatePayload } from "../../../api/fields";
-import FieldDialog from "./FieldDialog.vue";
+import FieldsDialog from "./FieldsDialog.vue";
 
 const props = defineProps<{
     sportsCenterId: number;
@@ -142,7 +142,7 @@ onMounted(load);
             </div>
         </div>
 
-        <FieldDialog :open="dialogOpen" :mode="dialogMode" :loading="busy" :modelValue="editingItem"
+        <FieldsDialog :open="dialogOpen" :mode="dialogMode" :loading="busy" :modelValue="editingItem"
             @close="dialogOpen = false" @submit="handleSubmit" />
     </section>
 </template>

@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\SportsCenterStoreRequest;
 use App\Http\Requests\SportsCenterUpdateRequest;
+use App\Models\OperatingHour;
 use App\Models\SportsCenter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class SportsCenterController extends Controller
 {
@@ -20,12 +22,23 @@ class SportsCenterController extends Controller
 
     public function store(SportsCenterStoreRequest $request)
     {
-        $sportsCenter = SportsCenter::create([
-            'owner_id' => $request->user()->id,
-            ...$request->validated(),
-        ]);
+        return DB::transaction(function () use ($request) {
+            $sportsCenter = SportsCenter::create([
+                'owner_id' => $request->user()->id,
+                ...$request->validated(),
+            ]);
 
-        return response()->json($sportsCenter, 201);
+            for ($day = 0; $day <= 6; $day++) {
+                OperatingHour::create([
+                    'sports_center_id' => $sportsCenter->id,
+                    'day_of_week' => $day,
+                    'open_time' => '08:00:00',
+                    'close_time' => '18:00:00',
+                ]);
+            }
+
+            return response()->json($sportsCenter, 201);
+        });
     }
 
     public function show(Request $request, SportsCenter $sportsCenter)

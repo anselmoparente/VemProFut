@@ -2,11 +2,15 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import http from "../../api/http";
-import { deleteSportsCenter, updateSportsCenter, type SportsCenter, type SportsCenterCreatePayload } from "../../api/sports-centers";
+import { logout } from "../../api/auth";
+import {
+    showSportsCenter,
+    type SportsCenter,
+} from "../../api/sports-centers";
 
-import SportsCenterDialog from "../Home/widgets/SportsCenterDialog.vue";
 import FieldsSection from "./widgets/FieldsSection.vue";
+import GamesSection from "./widgets/GamesSection.vue";
+import OperatingHoursDialog from "./widgets/OperatingHoursDialog.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -16,21 +20,17 @@ const id = computed(() => Number(route.params.id));
 const loading = ref(false);
 const error = ref<string>("");
 
-const item = ref<SportsCenter | null>(null);
+const sportsCenter = ref<SportsCenter | null>(null);
 
-const dialogOpen = ref(false);
-
-function openEditDialog() {
-    dialogOpen.value = true;
-}
+const operatingHoursOpen = ref(false);
 
 async function load() {
     loading.value = true;
     error.value = "";
 
     try {
-        const res = await http.get<SportsCenter>(`/api/sports-centers/${id.value}`).then(r => r.data);
-        item.value = res;
+        const data = await showSportsCenter(id.value);
+        sportsCenter.value = data;
     } catch (e: any) {
         if (e?.response?.status === 401) {
             await router.push({ name: "login" });
@@ -40,60 +40,32 @@ async function load() {
             error.value = "Acesso negado. Você não tem permissão para acessar esta arena.";
             return;
         }
-        error.value = e?.response?.data?.message ?? "Falha ao carregar a arena.";
+        if (e?.response?.status === 404) {
+            error.value = "Arena não encontrada.";
+            return;
+        }
+        error.value = e?.response?.data?.message ?? "Falha ao carregar detalhes da arena.";
     } finally {
         loading.value = false;
     }
 }
 
-function mapsUrl(sc: SportsCenter) {
-    const q = encodeURIComponent(`${sc.street}, ${sc.number} - ${sc.neighborhood}, ${sc.city} - ${sc.state}, ${sc.zip_code}`);
-    return `https://www.google.com/maps/search/?api=1&query=${q}`;
-}
-
-async function onDelete() {
-    if (!item.value) return;
-
-    const ok = confirm(`Remover "${item.value.name}"?`);
-    if (!ok) return;
-
-    loading.value = true;
-    error.value = "";
+async function onLogout() {
     try {
-        await deleteSportsCenter(item.value.id);
-        await router.push({ name: "home" });
-    } catch (e: any) {
-        error.value = e?.response?.data?.message ?? "Falha ao remover a Arena Esportiva.";
+        await logout();
     } finally {
-        loading.value = false;
+        localStorage.removeItem("token");
+        await router.push({ name: "login" });
     }
 }
 
-async function handleUpdate(payload: SportsCenterCreatePayload) {
-    if (!item.value) return;
-
-    loading.value = true;
-    error.value = "";
-    try {
-        const updated = await updateSportsCenter(item.value.id, payload);
-        item.value = updated;
-        dialogOpen.value = false;
-    } catch (e: any) {
-        error.value =
-            e?.response?.data?.message ??
-            (e?.response?.data?.errors ? (Object.values(e.response.data.errors).flat()?.[0] as string) : null) ??
-            "Falha ao atualizar a Arena Esportiva.";
-    } finally {
-        loading.value = false;
-    }
+function goBack() {
+    router.back();
 }
 
-const fullAddress = computed(() => {
-    if (!item.value) return "";
-    const sc = item.value;
-
-    return `${sc.street}, ${sc.number}${sc.complement ? ` - ${sc.complement}` : ""} · ${sc.neighborhood} · ${sc.city}/${sc.state} · ${sc.zip_code}`;
-});
+function openOperatingHours() {
+    operatingHoursOpen.value = true;
+}
 
 onMounted(load);
 </script>
@@ -101,9 +73,19 @@ onMounted(load);
 <template>
     <div class="page">
         <header class="topbar">
-            <div>
-                <h1 class="title">Detalhes da Arena</h1>
-                <p class="subtitle">Gerencie a arena e seus campos</p>
+            <div class="left">
+                <button class="icon-btn" @click="goBack" :disabled="loading" aria-label="Voltar">
+                    <span class="material-icons">arrow_back</span>
+                </button>
+
+                <div class="titles">
+                    <h1 class="title">
+                        {{ sportsCenter?.name ?? "Detalhes da Arena" }}
+                    </h1>
+                    <p class="subtitle">
+                        Gerencie campos e horários de funcionamento
+                    </p>
+                </div>
             </div>
 
             <div class="actions">
@@ -112,7 +94,9 @@ onMounted(load);
                     <span class="material-icons">refresh</span>
                 </button>
 
-                <button class="btn secondary" @click="router.back()" :disabled="loading">Voltar</button>
+                <button class="btn danger" @click="onLogout" :disabled="loading">
+                    Sair
+                </button>
             </div>
         </header>
 
@@ -121,33 +105,90 @@ onMounted(load);
             <p class="alert-text">{{ error }}</p>
         </div>
 
-        <section v-if="item" class="panel">
-            <div class="panel-head">
-                <div>
-                    <div class="panel-title">{{ item.name }}</div>
-                    <div class="panel-sub">{{ fullAddress }}</div>
-                    <div class="panel-sub small" v-if="item.phone">Telefone: {{ item.phone }}</div>
+        <div v-if="loading && !sportsCenter" class="muted">
+            Carregando detalhes...
+        </div>
+
+        <template v-if="sportsCenter">
+            <section class="card">
+                <div class="card-head">
+                    <div class="card-title">Informações da Arena</div>
+                    <div class="card-sub">
+                        Dados cadastrados e localização
+                    </div>
                 </div>
 
-                <div class="panel-actions">
-                    <a class="btn secondary" :href="mapsUrl(item)" target="_blank" rel="noreferrer"
-                        :aria-disabled="loading">
-                        Ver no mapa
-                    </a>
-                    <button class="btn" @click="openEditDialog" :disabled="loading">Editar</button>
-                    <button class="btn danger" @click="onDelete" :disabled="loading">Remover</button>
+                <div class="grid">
+                    <div class="info">
+                        <div class="label">Endereço</div>
+                        <div class="value">
+                            {{ sportsCenter.street }}, {{ sportsCenter.number }}
+                            <span v-if="sportsCenter.complement"> - {{ sportsCenter.complement }}</span>
+                        </div>
+                        <div class="value muted2">
+                            {{ sportsCenter.neighborhood }} · {{ sportsCenter.city }}/{{ sportsCenter.state }} · {{
+                                sportsCenter.zip_code }}
+                        </div>
+                    </div>
+
+                    <div class="info">
+                        <div class="label">Telefone</div>
+                        <div class="value">
+                            {{ sportsCenter.phone ?? "—" }}
+                        </div>
+                    </div>
+
+                    <div class="info">
+                        <div class="label">Coordenadas</div>
+                        <div class="value muted2">
+                            {{ sportsCenter.latitude }}, {{ sportsCenter.longitude }}
+                        </div>
+                    </div>
                 </div>
-            </div>
+            </section>
 
-            <div class="divider"></div>
+            <section class="card">
+                <div class="card-head">
+                    <div>
+                        <div class="card-title">Horários</div>
+                        <div class="card-sub">Defina quando a arena está disponível para agendamento</div>
+                    </div>
 
-            <FieldsSection :sportsCenterId="item.id" :disabled="loading" />
-        </section>
+                    <button class="btn" @click="openOperatingHours" :disabled="loading">
+                        Editar horários
+                    </button>
+                </div>
 
-        <div v-else-if="loading" class="muted">Carregando...</div>
+                <p class="muted">
+                    Ajuste os horários de funcionamento por dia. As alterações são feitas em janelas de 1 hora.
+                </p>
 
-        <SportsCenterDialog :open="dialogOpen" mode="edit" :loading="loading" :modelValue="item"
-            @close="dialogOpen = false" @submit="handleUpdate" />
+                <OperatingHoursDialog :open="operatingHoursOpen" :sportsCenterId="sportsCenter.id" :disabled="loading"
+                    @close="operatingHoursOpen = false" />
+            </section>
+
+            <section class="card">
+                <div class="card-head">
+                    <div class="card-title">Partidas</div>
+                    <div class="card-sub">
+                        Visualize os agendamentos de partidas desta arena
+                    </div>
+                </div>
+
+                <GamesSection :sportsCenterId="sportsCenter.id" :disabled="loading" />
+            </section>
+
+            <section class="card">
+                <div class="card-head">
+                    <div class="card-title">Campos</div>
+                    <div class="card-sub">
+                        Crie e gerencie os campos dentro desta arena
+                    </div>
+                </div>
+
+                <FieldsSection :sportsCenterId="sportsCenter.id" :disabled="loading" />
+            </section>
+        </template>
     </div>
 </template>
 
@@ -167,6 +208,17 @@ onMounted(load);
     margin-bottom: 16px;
 }
 
+.left {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.titles {
+    display: grid;
+    gap: 6px;
+}
+
 .title {
     margin: 0;
     font-size: 18px;
@@ -174,9 +226,9 @@ onMounted(load);
 }
 
 .subtitle {
-    margin: 6px 0 0 0;
+    margin: 0;
     font-size: 12px;
-    color: #EAF0FFCC;
+    color: #EAF0FFB3;
 }
 
 .actions {
@@ -185,63 +237,14 @@ onMounted(load);
     flex-wrap: wrap;
 }
 
-.panel {
-    background: #FFFFFF10;
-    border: 1px solid #FFFFFF1F;
-    border-radius: 16px;
-    padding: 14px;
-    box-shadow: 0 18px 60px #00000066;
-    backdrop-filter: blur(10px);
-}
-
-.panel-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 12px;
-}
-
-.panel-title {
-    font-size: 16px;
-    font-weight: 900;
-}
-
-.panel-sub {
-    margin-top: 6px;
-    font-size: 13px;
-    color: #EAF0FFCC;
-}
-
-.panel-sub.small {
-    font-size: 12px;
-    color: #EAF0FFB3;
-}
-
-.panel-actions {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-}
-
-.divider {
-    height: 1px;
-    background: #FFFFFF14;
-    margin: 14px 0;
-}
-
 .btn {
     background: #2E7DFF;
     border: 0;
     border-radius: 12px;
     padding: 10px 12px;
     color: #EAF0FF;
-    font-weight: 800;
+    font-weight: 900;
     cursor: pointer;
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
 }
 
 .btn:disabled {
@@ -249,12 +252,8 @@ onMounted(load);
     cursor: not-allowed;
 }
 
-.btn.secondary {
-    background: #FFFFFF1F;
-}
-
 .btn.danger {
-    background: #FF5A7BDB;
+    background: #FF5A7BD9;
 }
 
 .icon-btn {
@@ -267,7 +266,15 @@ onMounted(load);
     place-items: center;
     color: #EAF0FF;
     cursor: pointer;
-    transition: transform 150ms ease, opacity 150ms ease;
+    transition: transform 150ms ease, opacity 150ms ease, background 150ms ease;
+}
+
+.icon-btn:hover {
+    background: #FFFFFF2E;
+}
+
+.icon-btn:active {
+    transform: translateY(1px);
 }
 
 .icon-btn:disabled {
@@ -296,9 +303,70 @@ onMounted(load);
     color: #EAF0FFDD;
 }
 
-.muted {
-    color: #EAF0FFB3;
+.card {
+    background: #FFFFFF0F;
+    border: 1px solid #FFFFFF1F;
+    border-radius: 16px;
+    padding: 14px;
+    backdrop-filter: blur(8px);
+    margin-top: 12px;
+}
+
+.card-head {
+    display: grid;
+    gap: 6px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #FFFFFF14;
+    margin-bottom: 12px;
+}
+
+.card-title {
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #EAF0FFCC;
+}
+
+.card-sub {
     font-size: 12px;
+    color: #EAF0FFB3;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 12px;
+}
+
+.info {
+    background: #0F172A5C;
+    border: 1px solid #FFFFFF14;
+    border-radius: 14px;
+    padding: 12px;
+}
+
+.label {
+    font-size: 12px;
+    font-weight: 800;
+    color: #EAF0FFCC;
+    margin-bottom: 6px;
+}
+
+.value {
+    font-size: 13px;
+    color: #EAF0FF;
+}
+
+.muted {
+    font-size: 12px;
+    color: #EAF0FFB3;
+    padding: 10px 0;
+}
+
+.muted2 {
+    color: #EAF0FFB3;
+    margin-top: 6px;
 }
 
 @keyframes spin {
@@ -307,13 +375,18 @@ onMounted(load);
     }
 }
 
-@media (max-width: 720px) {
-    .panel-head {
-        flex-direction: column;
+@media (max-width: 860px) {
+    .grid {
+        grid-template-columns: 1fr;
     }
 
-    .panel-actions {
-        justify-content: flex-start;
+    .topbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .actions {
+        justify-content: flex-end;
     }
 }
 </style>
